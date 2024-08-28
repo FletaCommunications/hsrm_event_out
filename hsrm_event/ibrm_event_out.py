@@ -1,10 +1,3 @@
-'''
-Created on 2012. 10. 12.
-Modify on 2023-01-06
-@author: muse
-현재 시간 기준 마지막 쿼리 시간 부터 => lost seq_no 이후 로 쿼리 수정.
-'''
-
 import psycopg2
 import datetime
 import socket
@@ -15,34 +8,16 @@ import os
 import logging
 from logging.handlers import TimedRotatingFileHandler
 import re
-import fleta_crypto
-import smtplib
-import ssl
-from email.mime.text import MIMEText
 
 class itsm_event():
     def __init__(self):
         self.now = datetime.datetime.now()
-        self.seq_file = os.path.join('config','seq_no.txt')
-        self.seq_no = self.get_seq_no()
         self.flogger = self.get_logger
         self.cfg = self.get_cfg()
-        self.c_file = os.path.join('config','c_date.txt')
-        self.fc = fleta_crypto.AESCipher('kes2719!')
         self.conn_string = self.get_conn_str()
-        print(self.conn_string)
+        # print(self.conn_string)
+        self.c_file = os.path.join('config','c_date.txt')
 
-    def get_seq_no(self):
-
-        if not os.path.isfile(self.seq_file):
-            self.set_seq_no('1')
-        with open(self.seq_file) as f:
-            seq_no = f.read()
-        return seq_no
-
-    def set_seq_no(self,seq_no):
-        with open(self.seq_file,'w') as fw:
-            fw.write(str(seq_no))
 
 
     @property
@@ -55,7 +30,7 @@ class itsm_event():
         stream_hander = logging.StreamHandler()
         stream_hander.setFormatter(formatter)
         logger.addHandler(stream_hander)
-        log_file = os.path.join('logs', self.now.strftime('%Y%m%d.log'))
+        log_file = os.path.join('logs',self.now.strftime('%Y%m%d.log'))
         file_handler = logging.FileHandler(log_file)
         formatter = logging.Formatter(u'%(asctime)s %(levelname)s ==> %(message)s')
         file_handler.setFormatter(formatter)
@@ -66,23 +41,17 @@ class itsm_event():
 
 
     def get_conn_str(self):
-        ip = self.cfg.get('database', 'ip', fallback='localhost')
-        user = self.cfg.get('database', 'user', fallback='webuser')
-        dbname = self.cfg.get('database', 'dbname', fallback='qweb')
-        passwd = self.cfg.get('database', 'password', fallback='qw19850802@')
-        port = self.cfg.get('database', 'port', fallback='5432')
-        if len(passwd) > 20:
-            passwd = self.fc.decrypt(passwd)
-            if isinstance(passwd, bytes):
-                passwd = passwd.decode('utf-8')
-        return "host='%s' dbname='%s' user='%s' password='%s' port='%s'" % (ip, dbname, user, passwd, port)
+        ip = self.cfg.get('database','ip')
+        user = self.cfg.get('database','user')
+        dbname = self.cfg.get('database','dbname')
+        password = self.cfg.get('database','password')
+        port = self.cfg.get('database','port',fallback=5432)
+        return "host='{}' dbname='{}' user='{}' password='{}' port ='{}'".format(ip,dbname,user,password,port)
 
     def get_cfg(self):
         cfg = configparser.RawConfigParser()
         cfg_file = os.path.join('config','config.cfg')
-        print(cfg_file,os.path.isfile(cfg_file))
-        cfg.read(cfg_file)
-        print(cfg.sections())
+        cfg.read(cfg_file,encoding='utf-8')
         return cfg
 
     def getRaw(self, query_string):
@@ -102,21 +71,6 @@ class itsm_event():
             self.flogger.error(str(e))
             return []
 
-    def send_hana_cmd(self, msg_info):
-        """
-        기존의 EventOut 모듈을 통한 연동 대체
-        - 이벤트 발생시 커맨드를 호출해서 이벤트를 연동서버로 전송시키는 방식
-        - 커맨드 예
-        opcmsg s=critical a=신규_DR_SAN_S/W#1 o=SAN msg_grp=FSRM msg_t="[2024-03-22 11:00:23] Message Test"
-        s= 이벤트 레벨
-        a= 장비 Alias
-        o= 장비 타입 (STG/SAN)
-        msg_grp=FSRM (고정)
-        msg_t= 메시지 내용 (" 기호로 묶음)
-        :param msg:
-        :return:
-        """
-
     def send_file(self,msg):
         event_file = self.cfg.get('common','event_file')
         try:
@@ -126,37 +80,6 @@ class itsm_event():
         except Exception as e:
             self.flogger.error(str(e))
             print(str(e))
-
-    def send_smtp(self, msg_content):
-        smtp_host = self.cfg.get('smtp', 'smtp_host', fallback='smtp.fletacom.com')
-        smtp_user = self.cfg.get('smtp', 'smtp_user', fallback='fleta@fletacom.com')
-        smtp_passwd = self.cfg.get('smtp', 'smtp_passwd', fallback='fleta123')
-        target_user = self.cfg.get('smtp', 'target_user', fallback='fleta@fletacom.com')
-        target_user = self.cfg.get('smtp', 'target_user', fallback='fleta@fletacom.com')
-        target_user = self.cfg.get('smtp', 'target_user', fallback='fleta@fletacom.com')
-        smtp_title = self.cfg.get('smtp', 'smtp_title', fallback='[HSRM] Event Message')
-
-
-        msg = MIMEText(msg_content)
-        msg['Subject'] = smtp_title
-        msg['To'] = smtp_user
-        print(smtp_host)
-        print(smtp_user)
-        print(smtp_passwd)
-        print(target_user)
-
-        smtp = smtplib.SMTP(smtp_host, 587)
-        smtp.ehlo()  # say Hello
-        smtp.starttls()  # TLS 사용시 필요
-        smtp.login(smtp_user, smtp_passwd)
-        try:
-            smtp.sendmail(smtp_user, target_user, msg.as_string())
-            self.flogger.info('smtp send {} {}'.format(target_user, msg_content))
-        except Exception as e:
-            self.flogger.errot('smtp send error {} {}'.format(target_user, msg_content))
-            self.flogger.error(str(e))
-        print(msg.as_string())
-        smtp.quit()
 
     def send_socket(self,msg):
         """
@@ -198,9 +121,6 @@ class itsm_event():
         q = q.replace('{YD}',yd)
         q = q.replace('{TD}',td)
         q = q.replace('{CD}',cd)
-        if '{SEQ_NO}' in q:
-            q = q.replace('{SEQ_NO}',self.seq_no)
-        print(q)
         q_list = self.getRaw(q)
         """
         2022-03-04 09:20:55	01077778888	00000000000000011015	411015	STG	HITACHI	is a Error test code.[PORT:5E]                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
@@ -215,7 +135,6 @@ class itsm_event():
         q_event_level ,
         desc_summary
         """
-        seq_no = '1'
 
         for evt in q_list:
             evt_info = dict()
@@ -224,8 +143,8 @@ class itsm_event():
                 arg_msg = evt[i]
                 if arg_msg == None:
                     arg_msg="None"
-                evt_info['arg_{}'.format(str(arg_num))] = str(arg_msg).strip()
-                seq_no = evt[-1]
+                evt_info['arg_{}'.format(str(arg_num))] = arg_msg.strip()
+
             # evt_info = dict()
             # date_str = datetime.datetime.strftime(datetime.datetime.strptime(evt[0],'%Y-%m-%d %H:%M:%S'),'%Y%m%d%H%M%S')
             # evt_info['event_date']    = date_str
@@ -235,84 +154,6 @@ class itsm_event():
             # evt_info['q_event_level'] = evt[4]
             # evt_info['desc_summary']  = evt[5]
             evt_list.append(evt_info)
-        if len(q_list) > 0:
-            self.set_seq_no(seq_no)
-        # print("seq no :",seq_no)
-        return evt_list
-
-    def event_test_list(self):
-        with open('test.csv') as f:
-            lines = f.readlines()
-        evt_list = list()
-        q_list = list()
-        # for line in lines[1:]:
-        #     print(line)
-        #     evt = list()
-        #     tmp = line.split(',')
-        #     print(tmp)
-        #     evt.append(tmp[0].strip())
-        #     evt.append(tmp[1].strip())
-        #     evt.append(tmp[2].strip())
-        #     evt.append(tmp[3].strip())
-        #     evt.append(tmp[4].strip())
-        #     evt.append(tmp[5].strip())
-        #     msg = ','.join(tmp[7:-1])
-        #     msg = msg.replace('"','')
-        #     msg = msg.strip()
-        #     print(msg)
-        #
-        #     evt.append(','.join(tmp[7:-1]).strip())
-        #
-        #     evt.append(tmp[-1].strip())
-        #
-        #     q_list.append(evt)
-
-        evt = list()
-        evt.append('2023-12-06 9:02')
-        evt.append('000000000BRW4012N002')
-        evt.append('C3-1014')
-        evt.append('warning')
-        evt.append('Warning')
-        evt.append('SWI')
-        evt.append('000000000BRW4012N002')
-        evt.append('C3-1014  Link Reset on Port S0,P45(26) vc_no=0 crd(s)lost=2 auto trigger.')
-        evt.append('65799')
-        q_list.append(evt)
-
-        evt = list()
-        evt.append('2023-12-06 09:47')
-        evt.append('000000000BRW4012N002')
-        evt.append('SWI.MON.CRC.I46')
-        evt.append('Critical')
-        evt.append('Critical')
-        evt.append('SWI')
-        evt.append('DR #0018')
-        evt.append('[2023-12-06 09:47:00][Critical][CRC ERR][DWDM SAN #2 (BRW4012N002)][Index:46,Slot:N/A,Port:46] CRC ERR value changed (0->2), Linked Devices : ')
-        evt.append('65803')
-        q_list.append(evt)
-        for evt in q_list:
-            # evt = line.split(',')
-            print(evt)
-            evt_info = dict()
-            for i in range(len(evt)):
-                arg_num = i+1
-                arg_msg = evt[i]
-                if arg_msg == None:
-                    arg_msg="None"
-                evt_info['arg_{}'.format(str(arg_num))] = str(arg_msg).strip()
-                seq_no = evt[-1].strip()
-            # evt_info = dict()
-            # date_str = datetime.datetime.strftime(datetime.datetime.strptime(evt[0],'%Y-%m-%d %H:%M:%S'),'%Y%m%d%H%M%S')
-            # evt_info['event_date']    = date_str
-            # evt_info['serial_number'] = evt[1]
-            # evt_info['event_code']    = evt[2]
-            # evt_info['event_level']   = evt[3]
-            # evt_info['q_event_level'] = evt[4]
-            # evt_info['desc_summary']  = evt[5]
-            evt_list.append(evt_info)
-        if len(q_list) > 0:
-            self.set_seq_no(seq_no)
-        print(evt_list)
         return evt_list
 
     def get_req(self):
@@ -343,7 +184,7 @@ class itsm_event():
         print('check date  : ',self.now.strftime('%Y-%m-%d %H:%M:%S'))
 
     def get_log_str(self):
-        log_file = os.path.join('logs', self.now.strftime('%Y%m%d.log'))
+        log_file = os.path.join('logs',self.now.strftime('%Y%m%d.log'))
         with open(log_file) as f:
             log_str = f.read()
         return log_str
@@ -352,47 +193,7 @@ class itsm_event():
         fd=re.findall('\{\d\}',msg_format)
         return fd
 
-    def get_swi_msg(self, msg):
-        print(msg)
-        print(type(msg))
-        ret = msg.split(']')
-        print("RET :",ret)
-        dt = ret[0].replace('[', '')
-        level = ret[1].replace('[', '')
-        dev = ret[2].replace('[', '')
-        alias = ret[3].replace('[', '').split('(')[0]
-        serial = ret[3].replace('[', '').split('(')[1]
-        serial = serial.replace(')','')
-        descript = ']'.join(ret[4:])
 
-        evt_info = dict()
-        evt_info['arg_1'] = dt
-        evt_info['arg_2'] = level
-        evt_info['arg_3'] = dev
-        evt_info['arg_4'] = alias
-        evt_info['arg_5'] = serial
-        evt_info['arg_6'] = descript
-        """
-        #1: event_date 
-        #2: event_level 
-        #3 : 구분 (TX,RX)
-        #3: device_alias
-        #4: serial_number
-        #5: desc_summary
-        """
-        swi_msg = self.cfg.get('common', 'swi_msg_format', fallback='[{3}][{4}][{5}]{6}[{1}][{2}]')
-        fd = re.findall('\{\d\}', swi_msg)
-        # print(fd)
-        for arg in fd:
-            # print('arg : ', arg)
-            arg_num = re.search('\d', arg).group()
-            evt_arg = 'arg_{}'.format(arg_num)
-            # print(evt_arg)
-            # print(evt_info[evt_arg])
-            tg_msg = evt_info[evt_arg]
-            swi_msg = swi_msg.replace(arg, tg_msg)
-        print('# swi msg :',swi_msg)
-        return swi_msg
 
     def main(self):
         yd_date = self.now - datetime.timedelta(days=1)
@@ -400,11 +201,8 @@ class itsm_event():
         td = self.now.strftime('%Y-%m-%d')
         qcd,cd = self.get_cdate()
         evt_list = self.get_evt_list(yd, td, qcd)
-        print('event count :', len(evt_list))
-        print('event :', evt_list)
-        # evt_list = self.event_test_list()
-        # print('event count :',len(evt_list))
-        # print('event :',evt_list)
+
+        print('event count :',len(evt_list))
         """
         KB ITSM
         INFO  : 구분자
@@ -433,7 +231,6 @@ class itsm_event():
         swi_msg_bit = False
         swi_msg = str()
         for evt_info in evt_list:
-            print('evt_info :',evt_info)
             """
             evt 
                 1. 이벤트 발생시간
@@ -447,34 +244,22 @@ class itsm_event():
             evt['dev_vedor'] = evt[4]
             evt['evt_desc'] = evt[5]
             """
-            event_format = self.cfg.get('common', 'msg_format', fallback='[{1}][{2}][{3}][{5}][{6}]')
+            # event_format = self.cfg.get('common', 'msg_format', fallback='[{1}][{2}][{3}][{5}][{6}]')
+            event_format = self.cfg.get('common', 'msg_format')
             msg = event_format
-
+            print('event format : ',event_format)
             # print('format :',msg)
             # print(evt_info)
             fd = re.findall('\{\d\}', msg)
-            # print(fd)
 
-            msg_info = dict()
             for arg in fd:
                 arg_num = re.search('\d',arg).group()
                 evt_arg = 'arg_{}'.format(arg_num)
-                tg_msg = str(evt_info[evt_arg]).strip()
+                tg_msg = evt_info[evt_arg]
                 msg = msg.replace(arg,tg_msg)
-                print('-'*40)
-                print(evt_info['arg_6'])
-                print(len(re.findall('\[',tg_msg)))
-                if evt_info['arg_6'] == 'SWI' and  len(re.findall('\[',tg_msg)) > 2:
-                    # print('#'*50)
-                    # print(evt_info['arg_6'] == 'SWI')
-                    # print(len(re.findall('\[',tg_msg)) > 2)
-                    # print(evt_info['arg_6'])
-                    # print(msg)
+                if len(re.findall('\[',tg_msg)) > 2:
                     swi_msg_bit = True
                     swi_msg = tg_msg
-                else:
-                    swi_msg = evt_info['arg_7']
-
             # print(evt_info['event_date'])
             # msg = msg.replace('{1}', evt_info['event_date'])
             # print(msg)
@@ -484,31 +269,20 @@ class itsm_event():
             # msg = msg.replace('{5}', evt_info['q_event_level'].strip())
             # msg = msg.replace('{6}', evt_info['desc_summary'].strip())
 
+
             if swi_msg_bit :
-                """
-                [2022-06-13 14:25:21][Critical][SFP RX][SAN 스위치 #43L10M (BRCALJ1943L10M)][Index:1,Slot:0,Port:1] SFP Rx Power 334.2uW [Port Speed:N16, Threshold:400uW], Linked Devices : [SVR] nfddbo02  [STG] CKM00155102948(스토리지 #102948)
-                [SFP RX][N/A (JAF1542CERT)][Index:fc1/2,Slot:1,Port:2] SFP Rx Power 481.95uW [Port Speed:8, Threshold:590uW], Linked Devices : N/A
-                """
-                if not swi_msg[1:3] == '20':
-                    swi_msg= "[{}][{}]{}".format(evt_info['arg_1'], evt_info['arg_4'], swi_msg)
-
-                msg = self.get_swi_msg(swi_msg)
-
+                msg = swi_msg.strip()
+            else:
+                msg = msg.strip()
+            # msg = msg.strip() + '한글'
             print(msg)
             if msg in log_str:
                 self.flogger.error('dup mag : {}'.format(msg))
             else:
                 self.flogger.info(msg)
                 self.send_file(msg)
-                # self.send_smtp(msg)
-        # self.set_seq_no()
+        # self.set_cdate()
         print('-'*50)
 
 if __name__=='__main__':
     itsm_event().main()
-    # city = u'서울'
-    # print(isinstance(city,str))
-    # city1=city.encode('utf-8')
-    # print(city1)
-    # print(isinstance(city1,bytes))
-    # print(city1.decode('utf-8'))

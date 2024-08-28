@@ -102,21 +102,6 @@ class itsm_event():
             self.flogger.error(str(e))
             return []
 
-    def send_hana_cmd(self, msg_info):
-        """
-        기존의 EventOut 모듈을 통한 연동 대체
-        - 이벤트 발생시 커맨드를 호출해서 이벤트를 연동서버로 전송시키는 방식
-        - 커맨드 예
-        opcmsg s=critical a=신규_DR_SAN_S/W#1 o=SAN msg_grp=FSRM msg_t="[2024-03-22 11:00:23] Message Test"
-        s= 이벤트 레벨
-        a= 장비 Alias
-        o= 장비 타입 (STG/SAN)
-        msg_grp=FSRM (고정)
-        msg_t= 메시지 내용 (" 기호로 묶음)
-        :param msg:
-        :return:
-        """
-
     def send_file(self,msg):
         event_file = self.cfg.get('common','event_file')
         try:
@@ -157,6 +142,26 @@ class itsm_event():
             self.flogger.error(str(e))
         print(msg.as_string())
         smtp.quit()
+    def send_cmd(self,msg_info):
+        """
+        Warning : major
+        Critical : critical
+
+        :param msg_info:
+        :return:
+        """
+        if msg_info['q_level'] == 'Warning':
+            severity = 'major'
+        elif msg_info['q_level'] == 'Critical':
+            severity = 'critical'
+        else:
+            severity = 'major'
+        cmd = 'opcmsg s={SEVERITY} a="{ALIAS}" o={DEVICE} msg_grp=FSRM msg_t="{MSG}"'.format(SEVERITY=severity, ALIAS=msg_info['alias'], DEVICE=msg_info['device'], MSG=msg_info['msg'])
+        print(cmd)
+        ret = os.popen(cmd).read()
+        print(ret)
+        self.flogger.info(cmd)
+        self.flogger.info(ret)
 
     def send_socket(self,msg):
         """
@@ -357,13 +362,27 @@ class itsm_event():
         print(type(msg))
         ret = msg.split(']')
         print("RET :",ret)
+
+        """
+        Memory Usage : 48.78% [Threshold:45%]
+        [SFP TX][N/A (JAF1542CERT)][Index:fc1/4,Slot:1,Port:4] SFP Tx Power 466.66uW [Port Speed:8, Threshold:800uW], Linked Devices : N/A
+        """
         dt = ret[0].replace('[', '')
         level = ret[1].replace('[', '')
         dev = ret[2].replace('[', '')
-        alias = ret[3].replace('[', '').split('(')[0]
-        serial = ret[3].replace('[', '').split('(')[1]
-        serial = serial.replace(')','')
-        descript = ']'.join(ret[4:])
+        if len(ret) > 3:
+
+            alias = ret[3].replace('[', '').split('(')[0]
+            serial = ret[3].replace('[', '').split('(')[1]
+            serial = serial.replace(')','')
+            descript = ']'.join(ret[4:])
+        else:
+            alias = 'None'
+            serial = 'None'
+            try:
+                descript = ret[3]
+            except:
+                descript = ''
 
         evt_info = dict()
         evt_info['arg_1'] = dt
@@ -392,7 +411,7 @@ class itsm_event():
             tg_msg = evt_info[evt_arg]
             swi_msg = swi_msg.replace(arg, tg_msg)
         print('# swi msg :',swi_msg)
-        return swi_msg
+        return swi_msg, alias
 
     def main(self):
         yd_date = self.now - datetime.timedelta(days=1)
@@ -402,38 +421,18 @@ class itsm_event():
         evt_list = self.get_evt_list(yd, td, qcd)
         print('event count :', len(evt_list))
         print('event :', evt_list)
-        # evt_list = self.event_test_list()
-        # print('event count :',len(evt_list))
-        # print('event :',evt_list)
-        """
-        KB ITSM
-        INFO  : 구분자
-        2  : {1 :수신직원번소 , 2:수신전화번호, 3:수신App코드그룹, 6:ITSM정의수신코드} => 2번고정
-        01012341234  : 수신대상자 (전화번호) event message 대상자.
-        20220329120000 : 이벤트 발생시간.
-        5011815 : 요청자 (KB 담당 직원번호)
-        P : 발송타입 , 고정값
-        HSRM : app code 값
-        HSRM : 프로그램명
-        NA : 요청구분키 / ID / 근거 => 없으면 NA
-        [Serailnum] message 80byte 이하 SMS , 초과  LMS
-        """
-
-        """
-        [messgae]
-        req_emp = 5011815
-        req_src1 = HSRM
-        req_src2 = HSRM
-        req_dev = NA
-
-        """
-        # req_info = self.get_req()
-        self.flogger.debug('yd : {}, td: {}, cd: {}, qcd: {}, count:{}'.format(yd, td, cd, qcd, str(len(evt_list))))
         log_str = self.get_log_str()
         swi_msg_bit = False
         swi_msg = str()
+        msg_info = dict()
+        #cmd = 'opcmsg s={SEVERITY} a={ALIAS} o={DEVICE} msg_grp=FSRM msg_t="{MSG}"'.format(SEVERITY=severity, ALIAS=msg_info['alias'], DEVICE=msg_info['device'], MSG=msg_info['msg'])
         for evt_info in evt_list:
+
             print('evt_info :',evt_info)
+            msg_info['q_level'] = evt_info['arg_5']
+            msg_info['alias'] = evt_info['arg_7']
+            msg_info['device'] = evt_info['arg_6']
+
             """
             evt 
                 1. 이벤트 발생시간
@@ -447,6 +446,7 @@ class itsm_event():
             evt['dev_vedor'] = evt[4]
             evt['evt_desc'] = evt[5]
             """
+
             event_format = self.cfg.get('common', 'msg_format', fallback='[{1}][{2}][{3}][{5}][{6}]')
             msg = event_format
 
@@ -454,8 +454,6 @@ class itsm_event():
             # print(evt_info)
             fd = re.findall('\{\d\}', msg)
             # print(fd)
-
-            msg_info = dict()
             for arg in fd:
                 arg_num = re.search('\d',arg).group()
                 evt_arg = 'arg_{}'.format(arg_num)
@@ -464,6 +462,7 @@ class itsm_event():
                 print('-'*40)
                 print(evt_info['arg_6'])
                 print(len(re.findall('\[',tg_msg)))
+                msg_info['msg'] = evt_info['arg_8']
                 if evt_info['arg_6'] == 'SWI' and  len(re.findall('\[',tg_msg)) > 2:
                     # print('#'*50)
                     # print(evt_info['arg_6'] == 'SWI')
@@ -483,23 +482,30 @@ class itsm_event():
             # msg = msg.replace('{4}', evt_info['event_level'].strip())
             # msg = msg.replace('{5}', evt_info['q_event_level'].strip())
             # msg = msg.replace('{6}', evt_info['desc_summary'].strip())
-
+            print('swi_msg_bit :',swi_msg_bit)
             if swi_msg_bit :
                 """
                 [2022-06-13 14:25:21][Critical][SFP RX][SAN 스위치 #43L10M (BRCALJ1943L10M)][Index:1,Slot:0,Port:1] SFP Rx Power 334.2uW [Port Speed:N16, Threshold:400uW], Linked Devices : [SVR] nfddbo02  [STG] CKM00155102948(스토리지 #102948)
                 [SFP RX][N/A (JAF1542CERT)][Index:fc1/2,Slot:1,Port:2] SFP Rx Power 481.95uW [Port Speed:8, Threshold:590uW], Linked Devices : N/A
                 """
+                print(evt_info['arg_1'])
+                print(evt_info['arg_5'])
                 if not swi_msg[1:3] == '20':
-                    swi_msg= "[{}][{}]{}".format(evt_info['arg_1'], evt_info['arg_4'], swi_msg)
+                    print(evt_info['arg_1'])
+                    print(evt_info['arg_5'])
+                    swi_msg= "[{}][{}]{}".format(evt_info['arg_1'], evt_info['arg_5'], swi_msg)
 
-                msg = self.get_swi_msg(swi_msg)
+                msg, alias = self.get_swi_msg(swi_msg)
+                msg_info['alias'] = alias
+                msg_info['msg'] = msg
 
             print(msg)
             if msg in log_str:
                 self.flogger.error('dup mag : {}'.format(msg))
             else:
                 self.flogger.info(msg)
-                self.send_file(msg)
+                self.send_cmd(msg_info)
+                #self.send_file(msg)
                 # self.send_smtp(msg)
         # self.set_seq_no()
         print('-'*50)

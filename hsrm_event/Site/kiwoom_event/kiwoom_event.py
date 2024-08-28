@@ -20,7 +20,20 @@ class itsm_event():
         print(self.conn_string)
         self.c_file = os.path.join('config','c_date.txt')
         self.oracle_path()
+        self.seq_file = os.path.join('config', 'seq_no.txt')
         self.user_tel_list = self.get_user_tels()
+
+
+    def get_seq_no(self):
+            if not os.path.isfile(self.seq_file):
+                self.set_seq_no('1')
+            with open(self.seq_file) as f:
+                seq_no = f.read()
+            return seq_no
+
+    def set_seq_no(self,seq_no):
+        with open(self.seq_file,'w') as fw:
+            fw.write(str(seq_no))
 
     def get_user_tels(self):
         user_tel_list = list()
@@ -134,12 +147,19 @@ class itsm_event():
             '{TEL}')
             """.format(SUBJECT=title,CONTENT=msg,CALLBACK=callback,TEL=user_tel)
             print(sql)
+            dub_bit = self.cfg.get('common', 'dub_check', fallback='y')
+            # if dub_bit == 'y':
+            #     if msg in log_str:
+            #         self.flogger.error('dup mag : {}'.format(msg))
+            #     else:
+            #         self.flogger.info(msg)
+            #         cursor.execute(sql)
+            # else:
+            #     self.flogger.info(msg)
+            #     cursor.execute(sql)
 
-            if msg in log_str:
-                self.flogger.error('dup mag : {}'.format(msg))
-            else:
-                self.flogger.info(msg)
-                cursor.execute(sql)
+            self.flogger.info(msg)
+            cursor.execute(sql)
         connection.commit()
 
     def send_sqlplus(self,msg):
@@ -154,13 +174,13 @@ class itsm_event():
         oracle_port = self.cfg.get('oracle', 'oracle_port')
         oracle_user = self.cfg.get('oracle', 'oracle_user')
         oracle_password = self.cfg.get('oracle', 'oracle_password')
-
+        dup_bit = False
         print(self.user_tel_list)
         if os.path.isfile('event.sql'):
             os.remove('event.sql')
         for user_tel in self.user_tel_list:
-            with open('event.sql','a',encoding='utf8') as f:
-
+            with open('event.sql','w',encoding='utf8') as f:
+                sql = str()
                 sql = """INSERT INTO em_mmt_tran(
                 mt_pr,
                 date_client_req,
@@ -191,17 +211,16 @@ class itsm_event():
                 log_str = self.get_log_str()
                 if log_data in log_str:
                     self.flogger.error('dup mag : {}'.format(log_data))
+                    dup_bit = True
                 else:
                     self.flogger.info(log_data)
                     f.write(sql)
 
         #
         #cmd = 'sqlplus fleta/fleta123@121.170.193.203:1522/ORCL < event.sql'
-        cmd = 'sqlplus {ORA_USER}/{ORA_PASS}@{ORA_IP}:{ORA_PORT}/{ORA_SID} < event.sql'.format(ORA_USER=oracle_user,ORA_PASS=oracle_password,ORA_IP=oracle_ip,ORA_PORT=oracle_port,ORA_SID=oracle_sid)
-        print(cmd)
-        with open('event.sql') as f:
-            query = f.read()
-        if 'INSERT' in query:
+        if not dup_bit:
+            cmd = 'sqlplus {ORA_USER}/{ORA_PASS}@{ORA_IP}:{ORA_PORT}/{ORA_SID} < event.sql'.format(ORA_USER=oracle_user,ORA_PASS=oracle_password,ORA_IP=oracle_ip,ORA_PORT=oracle_port,ORA_SID=oracle_sid)
+            print(cmd)
             print(os.popen(cmd).read())
 
     def send(self,msg):
@@ -233,25 +252,25 @@ class itsm_event():
         finally:
             sock.close()
 
-    def get_evt_list(self,yd,td,cd):
+    def get_evt_list(self):
         """
         evt = {'datetime':'20220399120000', 'dev': 'STG', 'serial': '20924', 'message': 'Test event from HSRM', "tel_num": '01042420660'}
         evt_list.append(evt)
-        :param yd:
-        :param td:
-        :param cd:
+
         :return:
         """
         # yd='2022-06-12'
         # td='2022-06-13'
         # cd='2022-06-13 00:00:00'
         evt_list = list()
-        q_file = os.path.join('config','query.sql')
+        q_file = os.path.join('config','query1.sql')
         with open(q_file) as f:
             q=f.read()
-        q = q.replace('{YD}',yd)
-        q = q.replace('{TD}',td)
-        q = q.replace('{CD}',cd)
+        # q = q.replace('{YD}',yd)
+        # q = q.replace('{TD}',td)
+        # q = q.replace('{CD}',cd)
+        seq_no = self.get_seq_no()
+        q = q.replace('{SEQ_NO}', seq_no)
         print(q)
         q_list = self.getRaw(q)
         """
@@ -259,25 +278,46 @@ class itsm_event():
         2022-03-15 10:35:55	01077778888	00000000000000011536	11536	STG	HITACHI	is a Error test code.[PORT:5E]                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
         2022-03-15 10:35:55	01077778888	00000000000000011537	11537	STG	HITACHI	is a Error test code.[PORT:5E]
         """
-
+        """
+        event_date,
+        serial_number,
+        device_type ,
+        al.device_alias,
+        vendor_name ,
+        desc_summary,
+        event_code,
+        seq_no
+        
+       event_date ,
+       serial_number ,
+       device_type ,
+       view.device_alias_zero(serial_number) dev_alias,
+       vendor_name ,
+       desc_summary,
+       event_code
+        """
         for evt in q_list:
             print(evt)
             print(evt[0])
             evt_info = dict()
             # date_str = datetime.datetime.strftime(datetime.datetime.strptime(evt[0],'%Y-%m-%d %H:%M:%S'),'%Y%m%d%H%M%S')
             print(evt[0])
-            ed = datetime.datetime.strptime(evt[0].strip(),'%Y-%m-%d %H:%M:%S')
-            date_str = datetime.datetime.strftime(ed,'%Y%m%d%H%M%S')
-            # date_str=evt[0].strip()
-            print(date_str)
-            evt_info['event_date'] = date_str
-            evt_info['dev_serail'] = evt[1]
-            evt_info['dev_alias'] = evt[2]
-            evt_info['dev_type'] = evt[3]
-            evt_info['dev_vedor'] = evt[4]
-            evt_info['evt_desc'] = evt[5]
-            evt_info['evt_code'] = evt[6]
-            evt_list.append(evt_info)
+            try:
+                ed = datetime.datetime.strptime(evt[0].strip(),'%Y-%m-%d %H:%M:%S')
+                date_str = datetime.datetime.strftime(ed,'%Y%m%d%H%M%S')
+                # date_str=evt[0].strip()
+                print(date_str)
+                evt_info['event_date'] = date_str
+                evt_info['dev_serail'] = evt[1]
+                evt_info['dev_alias'] = evt[2]
+                evt_info['dev_type'] = evt[3]
+                evt_info['dev_vedor'] = evt[4]
+                evt_info['evt_desc'] = evt[5]
+                evt_info['evt_code'] = evt[6]
+                evt_info['seq_no'] = evt[-1]
+                evt_list.append(evt_info)
+            except Exception as e:
+                print(str(e))
         return evt_list
 
     def get_req(self):
@@ -318,7 +358,7 @@ class itsm_event():
         yd = yd_date.strftime('%Y-%m-%d')
         td = self.now.strftime('%Y-%m-%d')
         qcd,cd = self.get_cdate()
-        evt_list = self.get_evt_list(yd, td, qcd)
+        evt_list = self.get_evt_list()
 
         print('event count :',len(evt_list))
 
@@ -326,6 +366,7 @@ class itsm_event():
         self.flogger.debug('yd : {}, td: {}, cd: {}, qcd: {}, count:{}'.format(yd, td, cd, qcd, str(len(evt_list))))
 
         for evt in evt_list:
+            print(evt)
             """
             evt 
                 1. 이벤트 발생시간
@@ -341,25 +382,89 @@ class itsm_event():
             """
             evt_date = evt['event_date'].strip()
             evt_dev = evt['dev_type'].strip()
-            evt_serail = evt['dev_alias'].strip()
+            if evt['dev_alias'] == None:
+                evt_alias = ""
+            else:
+                evt_alias = evt['dev_alias'].strip()
             evt_msg = evt['evt_desc'].strip()
-            evt_code = evt['evt_code'].strip()
+            seq_no = evt['seq_no']
+            print('seq_no ',seq_no)
+            try:
+                evt_code = evt['evt_code'].strip()
+            except:
+                evt_code = ""
+            evt_serail = evt['dev_serail'].strip()
 
             desc ="[{}][{}][{}]{}".format(evt_dev,evt_serail,evt_code,evt_msg)
             send_method = self.cfg.get('common','send_method',fallback='sqlplus')
-            if send_method == 'socket':
-                self.send(desc)
-            elif send_method == 'cx_oracle':
-                self.send_oracle(desc)
-            else:
-                self.send_sqlplus(desc)
 
+            self.send_oracle(desc)
+
+            #
+            # if send_method == 'socket':
+            #     self.send(desc)
+            # elif send_method == 'cx_oracle':
+            #     self.send_oracle(desc)
+            # else:
+            #     self.send_sqlplus(desc)
+        if len(evt_list) > 0:
+            self.set_seq_no(seq_no)
 
         # self.set_cdate()
         print('-'*50)
+    def smstest(self):
+        sql="""INSERT INTO em_mmt_tran(
+            mt_pr,
+            date_client_req,
+            subject,
+            content,
+            attach_file_group_key,
+            callback,
+            service_type,
+            broadcast_yn,
+            msg_status,
+            recipient_num
+        ) 
+        values 
+        (
+            sq_em_mmt_tran_01.nextval,
+            sysdate,
+            'HSRM Event Massage',
+            '[STG][21722004158][N/A]base service internal error',
+            '0',
+            '02-2644-2241',
+            '3',
+            'N',
+            '1',
+            '01094259343')
+        """
+        title = self.cfg.get('message', 'title', fallback='title = HSRM Event Massage')
+        callback = self.cfg.get('message', 'callback', fallback='02-2644-2241')
+        oracle_ip = self.cfg.get('oracle', 'oracle_ip')
+        oracle_sid = self.cfg.get('oracle', 'oracle_sid')
+        oracle_port = self.cfg.get('oracle', 'oracle_port')
+        oracle_user = self.cfg.get('oracle', 'oracle_user')
+        oracle_password = self.cfg.get('oracle', 'oracle_password')
+        connStr = "{}/{}@{}:{}/{}".format(oracle_user, oracle_password, oracle_ip, oracle_port, oracle_sid)
+        print(connStr)
+        connection = cx_Oracle.connect(connStr)
+        cursor = connection.cursor()
+        print(sql)
+        cursor.execute(sql)
 
+        connection.commit()
+
+    def test(self):
+        seq_no = self.get_seq_no()
+        print('seq_no :',seq_no)
+        self.set_seq_no(seq_no)
 if __name__=='__main__':
+    # itsm_event().seq_test()
+
+
     itsm_event().main()
+
+
     # city = u'서울'
     # print(isinstance(city,str))
     # city1=city.encode('utf-8')

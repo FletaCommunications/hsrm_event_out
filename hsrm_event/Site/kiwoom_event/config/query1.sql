@@ -4,15 +4,14 @@
 -- and check_date >='{CD}'
 
 SELECT
-event_date,
-serial_number,
-event_code,
-event_level,
-q_event_level ,
-device_type ,
-al.device_alias,
-desc_summary,
-seq_no
+       event_date ,
+       serial_number ,
+       al.device_alias dev_alias,
+       device_type ,
+       vendor_name ,
+       desc_summary,
+       event_code,
+        seq_no
 FROM EVENT.event_log el LEFT JOIN
  (
     SELECT stg_serial ss, stg_alias device_alias FROM master.master_stg_info msi
@@ -29,3 +28,4 @@ WHERE
     --AND el.check_date >='{CD}'
     --and el.q_event_level = 'Critical'
     AND el.seq_no > '{SEQ_NO}'
+order by seq_no asc

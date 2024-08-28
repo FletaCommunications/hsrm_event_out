@@ -8,9 +8,11 @@ Created on 2013. 2. 11.
 import sys
 import os
 import psycopg2
-import configparser
+import ConfigParser
+import codecs
+import locale
 import common
-import fleta_crypto as fc
+
 
 
 
@@ -18,37 +20,59 @@ class FletaDb():
     def __init__(self):
         self.com = common.Common()
         self.dec = common.Decode()
-        self.cfg = self.getCfg()
-        self.fc = fc.AESCipher()
+#         self.logger = self.com.flog()
+                
+#         self.conn_string = "host='localhost' dbname='fleta' user='fletaAdmin' password='kes2719!'"
+        
         self.conn_string = self.getConnStr()
-        print(self.conn_string)
-
+        print self.conn_string
+        self.cfg = self.getCfg()
+        
+        
+    
     def getCfg(self):
-        cfg = configparser.RawConfigParser()
+        cfg = ConfigParser.RawConfigParser()
         cfgFile = os.path.join('config','config.cfg')
         cfg.read(cfgFile)
         return cfg
     
     def getConnStr(self):
-        ip = self.cfg.get('database','ip',fallback='localhost')
-        user = self.cfg.get('database','user',fallback='webuser')
-        dbname = self.cfg.get('database','dbname',fallback='qweb')
-        passwd = self.cfg.get('database','password',fallback='qw19850802@')
-        port = self.cfg.get('database','port',fallback='5432')
-        print('len :', len(passwd))
-        if len(passwd) > 20:
-            passwd = self.fc.decrypt(passwd)
-            if isinstance(passwd, bytes):
-                passwd = passwd.decode('utf-8')
-
-        return "host='%s' dbname='%s' user='%s' password='%s' port='%s'"%(ip,dbname,user,passwd,port)
-
+        cfg = ConfigParser.RawConfigParser()
+        cfgFile = os.path.join('config','config.cfg')
+        cfg.read(cfgFile)
+        try:
+            ip = cfg.get('database','ip')
+        except:
+            ip = '121.170.193.203'
+        try:
+            user = cfg.get('database','user')
+        except:
+            user = 'webuser'
+        try:
+            dbname = cfg.get('database','dbname')
+        except:
+            dbname = 'qweb'
+        try: 
+            passwd = cfg.get('database','password')
+        except:
+            passwd = 'qw19850802@'
+        
+        
+        if len(passwd)>20:
+            try:
+                passwd= self.dec.fdec(passwd)
+            except:
+                pass
+        
+        return "host='%s' dbname='%s' user='%s' password='%s'"%(ip,dbname,user,passwd)
+        
+    
     def getConnectInfo(self):
         dbinfo = {}
         for info in self.cfg.options('database'):
             val = self.cfg.get('database',info)
             if (info == 'passwd' or info == 'user') and len(val) >20:
-                val = self.dec.fdec(val)
+                val - self.dec.fdec(val)
             dbinfo[info] = val
         return dbinfo
     
@@ -61,7 +85,7 @@ class FletaDb():
     
     def queryExec(self,query):
         con = None
-        hostip=self.cfg.get('database','ip',fallback='121.170.193.203')
+        hostip='121.170.193.203'
 #         conn=pg2.connect(database="qweb",user="webuser",password="qw19850802@",host=hostip, port="5432")
 #     print "Connect to ", hostip
 #     return conn
@@ -73,24 +97,25 @@ class FletaDb():
             cur.execute(query)
             con.commit()
 #             print "Number of rows updated: %d" % cur.rowcount
-        except Exception as e:
+        except psycopg2.DatabaseError, e:
             if con:
                 con.rollback()
-                print((str(e)))
+            print 'Error %s' % e    
             sys.exit(1)
         finally:
             if con:
                 con.close()
 
+    
 
     def isEvnt(self,query):
     
         db=psycopg2.connect(self.conn_string)
         cursor = db.cursor()
-        print('query 2:',query)
+        print 'query 2:',query
         cursor.execute(query)
         rows = cursor.fetchall()
-
+        
         if rows == None:
             self.com.sysOut('Empty result set from query')
         
@@ -100,10 +125,10 @@ class FletaDb():
         return rows[0]
     
     def getList(self,query):
-        print(self.conn_string)
+        print self.conn_string
         db=psycopg2.connect(self.conn_string)
         cursor = db.cursor()
-        print('query 2:',query)
+        print 'query 2:',query
         cursor.execute(query)
         rows = cursor.fetchall()
         
@@ -128,12 +153,12 @@ class FletaDb():
 #             print "Number of rows updated: %d" % cur.rowcount
                
         
-        except psycopg2.DatabaseError as e:
+        except psycopg2.DatabaseError, e:
             
             if con:
                 con.rollback()
             
-            print('Error %s' % e)    
+            print 'Error %s' % e    
             sys.exit(1)
             
             
@@ -147,8 +172,8 @@ class FletaDb():
             f.write(msg+'‚r‚n')
     
     def isilonQuery(self,dic,table='monotir.pm_auto_isilon_info'):
-        colList= list(dic.keys())
-        valList= list(dic.values())
+        colList= dic.keys()
+        valList= dic.values()
         colStr = '('
         for i in colList:
             colStr += "%s"%i +','
@@ -168,8 +193,8 @@ class FletaDb():
     def getQList(self,dicList,table='monotir.pm_auto_isilon_info'):
         qList=[]
         for dic in dicList:
-            colList= list(dic.keys())
-            valList= list(dic.values())
+            colList= dic.keys()
+            valList= dic.values()
             colStr = '('
             for i in colList:
                 colStr += "%s"%i +','
@@ -204,12 +229,12 @@ class FletaDb():
 #             print "Number of rows updated: %d" % cur.rowcount
                 
          
-        except psycopg2.DatabaseError as e:
+        except psycopg2.DatabaseError, e:
              
             if con:
                 con.rollback()
              
-            print('Error %s' % e)    
+            print 'Error %s' % e    
             sys.exit(1)
              
              
@@ -223,8 +248,8 @@ class FletaDb():
     
     def dbInsert(self,dic,table='monotir.pm_auto_isilon_info'):
         
-        colList= list(dic.keys())
-        valList= list(dic.values())
+        colList= dic.keys()
+        valList= dic.values()
         colStr = '('
         for i in colList:
             colStr += "%s"%i +','
@@ -251,12 +276,12 @@ class FletaDb():
 #             print "Number of rows updated: %d" % cur.rowcount
                 
          
-        except psycopg2.DatabaseError as e:
+        except psycopg2.DatabaseError, e:
              
             if con:
                 con.rollback()
              
-            print('Error %s' % e)    
+            print 'Error %s' % e    
             sys.exit(1)
              
              
@@ -273,12 +298,12 @@ class FletaDb():
             cur = con.cursor()
             cur.execute(query)
             con.commit()
-        except psycopg2.DatabaseError as e:
+        except psycopg2.DatabaseError, e:
             
             if con:
                 con.rollback()
             
-            print('Error %s' % e)    
+            print 'Error %s' % e    
 #             sys.exit(1)
         finally:
             
@@ -430,17 +455,16 @@ order by 4 desc
         hostip=''
         
         hostip=self.cfg.get('database','ip')
-        print(hostip)
-
-        db=psycopg2.connect(self.conn_string)
+        print hostip
+        db=psycopg2.connect(database="qweb",user="webuser",password="qw19850802@",host='121.170.193.219', port="5432")
         
         
         cursor = db.cursor()
         cursor.execute(query_string)
-        print(query_string)
+        print query_string
         rows = cursor.fetchall()
     
-        print('rows',rows)
+        print 'rows',rows
         cursor.close()
         db.close()
         
@@ -475,7 +499,7 @@ order by 4 desc
             
             
         except:
-            print("I am unable to connect to the database.")
+            print "I am unable to connect to the database."
         
         # If we are accessing the rows via column name instead of position we 
         # need to add the arguments to conn.cursor.
@@ -504,8 +528,8 @@ if __name__ == '__main__':
 select event_date, event_tag, vendor_name, model_name, serial_number, desc_summary from event_op.event_log where (event_tag = 'SWI.MON.CRC' or event_tag = 'SWI.MON.DB') and user_id = ''
     
     """
-    print(query)
-    print(FletaDb().getRaw(query))
+    print query
+    print FletaDb().getRaw(query)
     
     
         

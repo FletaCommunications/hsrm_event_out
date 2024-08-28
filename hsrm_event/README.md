@@ -53,38 +53,54 @@ ON el.serial_number = al.ss
 nas,storage,switch 의 alias 컬럼 추가.
 
 
-20231010
+20221118 수정
+메세지 한글 포함 또는 config/config.cfg 에 한글 포함 일때 에러 패치.
 
-이벤트 연동 방식 추가.
-snmp 전송
-./config.cfg
-[common]
-send_method = file/snmp/syslog
+20231124 수정
 
-./config/snmp.cfg 
+swi message 의 경우 desc 에 
+의 형태로 모든 메세지가 담겨 있음.
 
-[snmp]
-d =  218.145.246.35
-c = public
-o = 1.3.6.1.4.1.116
-i = 218.145.246.35
-g = 5
-s = 23
-t = 12445
-v1 = 1.3.6.1.4.1.116.5.11.4.2.1 STRING {SERIAL}
-v4 = 1.3.6.1.4.1.116.5.11.4.2.5 STRING {DATE}
-v5 = 1.3.6.1.4.1.116.5.11.4.2.6 STRING {TIME}
-v6=  1.3.6.1.4.1.116.5.11.4.2.7 STRING {MSG}
-
-해당 site 에 맞게 수정.
-
-syslog 전송.
-q_event_level = 'Critical'
-   ==> rsyslog error 로 전송
-
-q_event_level = 'Warning'
-   ==> rsyslog warning 으로로 전송
-이 외에는 모두 info 전송
+메세지 파싱후 조합 가능
+#1: event_date
+#2: event_level
+#3 : SFP TX/SFP RX/ CRC/
+#3: device_alias
+#4: serial_number
+#5: desc_summary
+swi_msg_format = [{3}] [{4}] {5}  {6} [{1}][{2}]
+example) 
+[2023-11-24 00:01:04][Critical][SFP RX][N/A (ALJ2503G08G)][Index:5,Slot:N/A,Port:5] SFP Rx Power 407.7uW [Port Speed:8, Threshold:500uW], Linked Devices : [N/A] N/A(N/A)
+[SFP RX] [N/A] (ALJ2503G08G)  [Index:5,Slot:N/A,Port:5] SFP Rx Power 407.7uW [Port Speed:8, Threshold:500uW], Linked Devices : [N/A] N/A(N/A) [2023-11-24 00:01:04][Critical]
 
 
+2023-12-12 수정
+1. swi message 이면서 snmp 로 받은 문자열 처리.
+2. alias 에 공백이 있을때 짤리는 현상 patch
+
+20240401 수정
+
+"""
+[2022-06-13 14:25:21][Critical][SFP RX][SAN 스위치 #43L10M (BRCALJ1943L10M)][Index:1,Slot:0,Port:1] SFP Rx Power 334.2uW [Port Speed:N16, Threshold:400uW], Linked Devices : [SVR] nfddbo02  [STG] CKM00155102948(스토리지 #102948)
+[SFP RX][N/A (JAF1542CERT)][Index:fc1/2,Slot:1,Port:2] SFP Rx Power 481.95uW [Port Speed:8, Threshold:590uW], Linked Devices : N/A
+"""
+event_log 의 description message 포멧 변경으로 인한 swi_msg 포멧 변경.
+기존 처럼 [시간][등급] 으로 메세지 연동은
+swi_msg_format = [{1}][{2}] [{3}] [{4}] {5}  {6}
+
+config.cfg 
+#1: event_date
+#2: event_level
+#3 : SFP TX/SFP RX/ CRC/
+#3: device_alias
+#4: serial_number
+#5: desc_summary
+#[SFP TX] [N/A] (1002ALJ5EM)  [Index:5,Slot:N/A,Port:5] SFP Tx Power 455.0uW [Port Speed:8, Threshold:500uW], Linked Devices : [SVR] FLETA-ESXI1,FLETA-ESXI2  [STG] 200A0828B1A(N/A) [2022-08-31 00:00:35][Warning]
+
+swi_msg_format = [{3}] [{4}] {5}  {6} # 시간 등급 제외한 메세지 연동.
+
+
+
+2024--04-12 하나증권 패치
+opcmsg s=critical a=00000000001002ALJ5EM  o=SWI msg_grp=FSRM msg_t="[2024-03-26 16:19:57] [ [Memory Usage : 47.32% [Threshold:45%]] Stop monitoring, Cuase : High Memory Usage]"
 
