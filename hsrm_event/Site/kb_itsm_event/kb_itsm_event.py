@@ -17,40 +17,8 @@ class itsm_event():
         self.conn_string = self.get_conn_str()
         print(self.conn_string)
         self.c_file = os.path.join('config','c_date.txt')
-        self.seq_file = os.path.join('config','seq_no.txt')
-        self.last_seq_no = self.get_last_seq_no()
 
-    def get_last_seq_no(self):
-        try:
-            with open(os.path.join('config', 'seq_no.txt')) as f:
-                last_seq_no = f.read().strip()
-        except Exception as e:
-            print(str(e))
-            last_seq_no = self.get_last_seq_no_in_db()
-        return last_seq_no
 
-    def get_last_seq_no_in_db(self):
-        query = """SELECT max(seq_no) FROM EVENT.event_log WHERE
-    1=1
-        AND  ((q_event_level = 'Warning' and device_type = 'STG') or (q_event_level = 'Critical' and device_type = 'STG')
-        or (q_event_level = 'Critical' and device_type = 'SWI') 
-    )
-        """
-        try:
-            seq_no = self.getRaw(query)[0][0]
-        except Exception as e:
-            print(str(e))
-            seq_no = "1"
-        with open(self.seq_file) as fw:
-            fw.write(seq_no)
-        return seq_no
-
-    def set_last_seq_no(self):
-        with open(self.seq_file) as f:
-            last_seq_no = f.read()
-        if not self.last_seq_no == last_seq_no:
-            with open(self.seq_file,'w') as fw:
-                fw.write(str(self.last_seq_no))
 
     @property
     def get_logger(self):
@@ -144,8 +112,6 @@ class itsm_event():
         q = q.replace('{YD}',yd)
         q = q.replace('{TD}',td)
         q = q.replace('{CD}',cd)
-        q = q.replace('{LAST_SEQ_NO}',self.last_seq_no)
-        print(q)
         q_list = self.getRaw(q)
         """
         2022-03-04 09:20:55	01077778888	00000000000000011015	411015	STG	HITACHI	is a Error test code.[PORT:5E]                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
@@ -164,7 +130,6 @@ class itsm_event():
             evt_info['dev_vedor'] = evt[5]
             evt_info['evt_desc'] = evt[6]
             evt_list.append(evt_info)
-            self.last_seq_no = evt[-1]
         return evt_list
 
     def get_req(self):
@@ -270,7 +235,6 @@ class itsm_event():
             else:
                 self.flogger.info(msg)
                 self.send(msg)
-                self.set_last_seq_no()
         # self.set_cdate()
         print('-'*50)
 
@@ -279,6 +243,6 @@ if __name__=='__main__':
     # city = u'서울'
     # print(isinstance(city,str))
     # city1=city.encode('utf-8')
-    # print(city1)
+    # print(city1)g
     # print(isinstance(city1,bytes))
     # print(city1.decode('utf-8'))

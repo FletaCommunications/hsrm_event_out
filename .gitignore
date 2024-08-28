@@ -1,0 +1,13 @@
+env
+.idea
+log
+logs
+*.bak
+*.spec
+*.csv
+build
+dist
+data
+*.jpg
+*.txt
+*.zip
